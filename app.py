@@ -1,71 +1,77 @@
-import sqlite3
+import gspread
 import streamlit as st
+from itertools import chain
+from streamlit_gsheets import GSheetsConnection
 
-# --- DATENBANK EINRICHTEN ---
-# Verbindet mit der Datenbank-Datei (wird automatisch erstellt)
-conn = sqlite3.connect("brettspiele.db", check_same_thread=False)
-cursor = conn.cursor()
+# --- GOOGLE SHEETS VERBINDUNG ---
+# Trage HIER die kopierte URL deiner Google-Tabelle ein
+GOOGLE_SHEET_URL = "https://docs.google.com/spreadsheets/d/1_T4tN3BLPD4rt6F5ccjS0IlbcDkZ19lmobDdajIIn-U/edit?gid=0#gid=0"
 
-# Tabelle für die Spiele erstellen, falls sie noch nicht existiert
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS spiele (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    titel TEXT NOT NULL,
-    spieler TEXT,
-    dauer INTEGER,
-    kategorien TEXT,
-    notiz TEXT
-)
-""")
-conn.commit()
+# Verbindung für das Lesen der Daten (Streamlit Built-in)
+conn = st.connection("gsheets", type=GSheetsConnection)
 
-# --- WEB-OBERFLÄCHE (STREAMLIT) ---
-st.title("🎲 Meine Brettspiel-Datenbank")
-st.write("Trage deine Spiele ein und filtere deine Sammlung online!")
+# --- WEB-OBERFLÄCHE ---
+st.title("🎲 Meine Brettspiel-Datenbank (Cloud)")
+st.write("Deine Daten sind sicher in Google Sheets gespeichert!")
 
 # --- FORMULAR: NEUES SPIEL HINZUFÜGEN ---
 st.header("➕ Neues Spiel hinzufügen")
 
 with st.form("spiel_form", clear_on_submit=True):
     titel = st.text_input("Name des Spiels")
-    spieler = st.text_input("Spieleranzahl (z.B. 2-4)", "2-4")
+    spieler = st.text_input("Spieleranzahl", "2-4")
     dauer = st.number_input("Spieldauer (in Minuten)", min_value=5, value=60)
-
-    # Hier kannst du deine Kategorien als Text oder Schlagworte eingeben
-    kategorien = st.text_input("Kategorien (mit Komma trennen, z.B. Würfel, Sci-Fi)")
-
+    kategorien = st.text_input("Kategorien (mit Komma trennen)")
     notiz = st.text_area("Meine Bemerkungen")
 
-    submit = st.form_submit_button("In Datenbank speichern")
+    submit = st.form_submit_button("In Google Sheets speichern")
 
     if submit and titel:
-        # Daten in die SQLite Datenbank schreiben
-        cursor.execute(
-            "INSERT INTO spiele (titel, spieler, dauer, kategorien, notiz) VALUES (?, ?, ?, ?, ?)",
-            (titel, spieler, dauer, kategorien, notiz),
-        )
-        conn.commit()
-        st.success(f"'{titel}' wurde erfolgreich gespeichert!")
+        try:
+            # Verbindung für das SCHREIBEN der Daten via gspread (sucht die Tabelle öffentlich via URL)
+            gc = gspread.public_open(GOOGLE_SHEET_URL)
+            worksheet = gc.worksheet("spiele")
+
+            # Neue Zeile als Liste vorbereiten und ans Ende der Tabelle anhängen
+            neue_zeile = [titel, spieler, int(dauer), kategorien, notiz]
+            worksheet.append_row(neue_zeile)
+
+            st.success(f"'{titel}' wurde erfolgreich in der Cloud gespeichert!")
+            # Cache leeren, damit die Anzeige unten sofort aktualisiert wird
+            st.cache_data.clear()
+        except Exception as e:
+            st.error(
+                f"Fehler beim Speichern. Hast du die Tabelle auf 'Mitwirkender/Editor' gestellt? Details: {e}"
+            )
 
 # --- ANZEIGE & FILTER ---
 st.header("📚 Meine Sammlung")
 
-# Alle Spiele aus der Datenbank abrufen
-cursor.execute("SELECT titel, spieler, dauer, kategorien, notiz FROM spiele")
-alle_spiele = cursor.fetchall()
+try:
+    # Daten live aus dem Google Sheet laden (Tabellenblatt "spiele")
+    data = conn.read(spreadsheet=GOOGLE_SHEET_URL, worksheet="spiele")
 
-if not alle_spiele:
-    st.info("Noch keine Spiele in der Datenbank. Trage oben dein erstes Spiel ein!")
-else:
-    # Filter-Option in der Seitenleiste
-    filter_kat = st.sidebar.text_input("🔍 Nach Kategorie filtern")
+    if data.empty:
+        st.info("Noch keine Spiele eingetragen.")
+    else:
+        filter_kat = st.sidebar.text_input("🔍 Nach Kategorie filtern")
 
-    # Spiele anzeigen
-    for spiel in alle_spiele:
-        s_titel, s_spieler, s_dauer, s_kat, s_notiz = spiel
+        # Wir gehen Zeile für Zeile durch die geladenen Daten
+        for index, row in data.iterrows():
+            s_titel = row["titel"]
+            s_spieler = row["spieler"]
+            s_dauer = row["dauer"]
+            s_kat = str(row["kategorien"]) if not None else ""
+            s_notiz = row["notiz"]
 
-        # Wenn ein Filter aktiv ist, prüfen ob die Kategorie passt
-        if filter_kat.lower() in s_kat.lower():
-            with st.expander(f"🔴 {s_titel} ({s_spieler} Spieler | {s_dauer} Min)"):
-                st.write(f"**Kategorien:** {s_kat}")
-                st.write(f"**Meine Notiz:** {s_notiz}")
+            # Filter anwenden
+            if filter_kat.lower() in s_kat.lower():
+                with st.expander(
+                    f"🔴 {s_titel} ({s_spieler} Spieler | {s_dauer} Min)"
+                ):
+                    st.write(f"**Kategorien:** {s_kat}")
+                    st.write(f"**Meine Notiz:** {s_notiz}")
+except Exception as e:
+    st.info(
+        "Füge dein erstes Spiel hinzu, um die Tabelle zu aktivieren! (Oder überprüfe deine URL)"
+    )
