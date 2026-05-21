@@ -27,54 +27,48 @@ with st.form("spiel_form", clear_on_submit=True):
 
     if submit and titel:
         try:
-            # 1. Wir versuchen, die bestehenden Daten zu laden
+            st.info("Sende Daten an Google... Bitte warten.")
+            
+            # 1. Wir holen uns die URL, die Streamlit AKTUELL verwendet
             try:
-                aktuelle_daten = conn.read(spreadsheet=GOOGLE_SHEET_URL, worksheet="spiele")
-                
-                # Falls die Tabelle existiert, aber Pandas sie falsch eingelesen hat (z.B. als None)
+                verwendete_url = st.secrets["connections"]["gsheets"]["spreadsheet"]
+                st.write(f"🔎 Verwendete Tabellen-URL aus den Secrets: `{verwendete_url}`")
+            except Exception:
+                st.write("🔎 Warnung: Konnte die URL nicht aus den Secrets auslesen!")
+
+            # 2. Bestehende Daten laden
+            try:
+                aktuelle_daten = conn.read(worksheet="spiele")
                 if aktuelle_daten is None:
                     aktuelle_daten = pd.DataFrame(columns=["titel", "spieler", "dauer", "kategorien", "notiz"])
-            except Exception:
-                # Falls das Laden fehlschlägt (z.B. weil das Sheet komplett leer ist)
+            except Exception as read_err:
+                st.write(f"ℹ️ Hinweis beim Lesen (Tabelle evtl. leer): {read_err}")
                 aktuelle_daten = pd.DataFrame(columns=["titel", "spieler", "dauer", "kategorien", "notiz"])
 
-            # 2. Das neue Spiel als sauberes Datenblatt (DataFrame) anlegen
+            # 3. Das neue Spiel anlegen
             neues_spiel = pd.DataFrame([{
-                "titel": titel,
-                "spieler": spieler,
-                "dauer": int(dauer),
-                "kategorien": kategorien,
-                "notiz": notiz
+                "titel": titel, "spieler": spieler, "dauer": int(dauer), "kategorien": kategorien, "notiz": notiz
             }])
-
-            # 3. Sicherstellen, dass die Spaltennamen exakt übereinstimmen
             neues_spiel = neues_spiel.reindex(columns=["titel", "spieler", "dauer", "kategorien", "notiz"])
 
-            # 4. Das neue Spiel unten an die alten Daten anheften
+            # 4. Daten zusammenführen
             if aktuelle_daten.empty:
                 aktualisierte_daten = neues_spiel
             else:
-                # Wir bereinigen eventuelle leere Zeilen/Spalten aus dem Google-Sheet-Import
                 aktuelle_daten = aktuelle_daten.dropna(how='all')
                 aktualisierte_daten = pd.concat([aktuelle_daten, neues_spiel], ignore_index=True)
 
-            # 5. Das gesamte Paket komplett zu Google hochladen
-            conn.update(
-                spreadsheet=GOOGLE_SHEET_URL,
-                worksheet="spiele",
-                data=aktualisierte_daten
-            )
+            # 5. Hochladen und die ANTWORT von Google abfangen
+            antwort = conn.update(worksheet="spiele", data=aktualisierte_daten)
+            
+            # Wir geben die exakte Antwort von Google auf dem Bildschirm aus!
+            st.write(f"📡 Direkte Antwort vom Google-Server: `{antwort}`")
 
-            st.success(f"🎲 '{titel}' wurde erfolgreich gespeichert!")
+            st.success(f"🎲 '{titel}' wurde verarbeitet!")
             st.cache_data.clear()
 
         except Exception as e:
-            # Der bewährte Filter für die harmlose Response-200-Erfolgsmeldung
-            if "200" in str(e):
-                st.success(f"🎲 '{titel}' wurde erfolgreich gespeichert!")
-                st.cache_data.clear()
-            else:
-                st.error(f"Fehler beim Speichern: {e}")
+            st.error(f"💥 Fehler im Prozess: {e}")
 
 # --- ANZEIGE & FILTER ---
 st.header("📚 Meine Sammlung")
