@@ -1,17 +1,21 @@
+import streamlit as str
 import pandas as pd
-import streamlit as st
 from streamlit_gsheets import GSheetsConnection
 
-# --- GOOGLE SHEETS VERBINDUNG ---
-# Trage HIER deine Google-Tabellen-URL ein
-GOOGLE_SHEET_URL = "HIER_DEINE_GOOGLE_TABELLEN_URL_EINFÜGEN"
+# --- SEITEN-EINSTELLUNGEN ---
+st.set_page_config(
+    page_title="Meine Brettspiel-Datenbank",
+    page_icon="🎲",
+    layout="centered"
+)
 
-# Verbindung zu Google Sheets herstellen
+st.title("🎲 Meine Brettspiel-Datenbank")
+st.write("Verwalte deine Brettspiel-Sammlung ganz einfach über diese Web-Oberfläche. Alle Daten werden live in Google Sheets gespeichert.")
+
+# --- GOOGLE SHEETS VERBINDUNG INITIALISIEREN ---
+# Streamlit holt sich alle Zugangsdaten und die URL automatisch aus deinen Secrets!
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# --- WEB-OBERFLÄCHE ---
-st.title("🎲 Meine Brettspiel-Datenbank (Cloud)")
-st.write("Deine Daten sind sicher in Google Sheets gespeichert!")
 
 # --- FORMULAR: NEUES SPIEL HINZUFÜGEN ---
 st.header("➕ Neues Spiel hinzufügen")
@@ -26,82 +30,66 @@ with st.form("spiel_form", clear_on_submit=True):
     submit = st.form_submit_button("In Google Sheets speichern")
 
     if submit and titel:
+        # 1. Bestehende Daten laden
         try:
-            st.info("Sende Daten an Google... Bitte warten.")
-            
-            # 1. Wir holen uns die URL, die Streamlit AKTUELL verwendet
-            try:
-                verwendete_url = st.secrets["connections"]["gsheets"]["spreadsheet"]
-                st.write(f"🔎 Verwendete Tabellen-URL aus den Secrets: `{verwendete_url}`")
-            except Exception:
-                st.write("🔎 Warnung: Konnte die URL nicht aus den Secrets auslesen!")
-
-            # 2. Bestehende Daten laden
-            try:
-                aktuelle_daten = conn.read(worksheet="spiele")
-                if aktuelle_daten is None:
-                    aktuelle_daten = pd.DataFrame(columns=["titel", "spieler", "dauer", "kategorien", "notiz"])
-            except Exception as read_err:
-                st.write(f"ℹ️ Hinweis beim Lesen (Tabelle evtl. leer): {read_err}")
+            aktuelle_daten = conn.read(worksheet="spiele")
+            if aktuelle_daten is None:
                 aktuelle_daten = pd.DataFrame(columns=["titel", "spieler", "dauer", "kategorien", "notiz"])
+        except Exception:
+            # Falls das Sheet komplett leer ist, starten wir mit leeren Spalten
+            aktuelle_daten = pd.DataFrame(columns=["titel", "spieler", "dauer", "kategorien", "notiz"])
 
-            # 3. Das neue Spiel anlegen
-            neues_spiel = pd.DataFrame([{
-                "titel": titel, "spieler": spieler, "dauer": int(dauer), "kategorien": kategorien, "notiz": notiz
-            }])
-            neues_spiel = neues_spiel.reindex(columns=["titel", "spieler", "dauer", "kategorien", "notiz"])
+        # 2. Das neue Spiel als sauberes Datenblatt (DataFrame) anlegen
+        neues_spiel = pd.DataFrame([{
+            "titel": titel,
+            "spieler": spieler,
+            "dauer": int(dauer),
+            "kategorien": kategorien,
+            "notiz": notiz
+        }])
+        
+        # Sicherstellen, dass die Reihenfolge der Spalten exakt übereinstimmt
+        neues_spiel = neues_spiel.reindex(columns=["titel", "spieler", "dauer", "kategorien", "notiz"])
 
-            # 4. Daten zusammenführen
-            if aktuelle_daten.empty:
-                aktualisierte_daten = neues_spiel
-            else:
-                aktuelle_daten = aktuelle_daten.dropna(how='all')
-                aktualisierte_daten = pd.concat([aktuelle_daten, neues_spiel], ignore_index=True)
+        # 3. Daten zusammenführen
+        if aktuelle_daten.empty:
+            aktualisierte_daten = neues_spiel
+        else:
+            # Eventuelle komplett leere Zeilen aus der Google-Tabelle herausfiltern
+            aktuelle_daten = aktuelle_daten.dropna(how='all')
+            aktualisierte_daten = pd.concat([aktuelle_daten, neues_spiel], ignore_index=True)
 
-            # 5. Hochladen und die ANTWORT von Google abfangen
-            antwort = conn.update(worksheet="spiele", data=aktualisierte_daten)
-            
-            # Wir geben die exakte Antwort von Google auf dem Bildschirm aus!
-            st.write(f"📡 Direkte Antwort vom Google-Server: `{antwort}`")
+        # 4. Daten direkt zu Google Sheets hochladen
+        conn.update(worksheet="spiele", data=aktualisierte_daten)
+        
+        # 5. Grüne Erfolgsmeldung anzeigen und den App-Speicher (Cache) aktualisieren
+        st.success(f"🎲 '{titel}' wurde erfolgreich in deiner Google-Tabelle gespeichert!")
+        st.cache_data.clear()
 
-            st.success(f"🎲 '{titel}' wurde verarbeitet!")
-            st.cache_data.clear()
 
-        except Exception as e:
-            st.error(f"💥 Fehler im Prozess: {e}")
-
-# --- ANZEIGE & FILTER ---
+# --- ANZEIGE: MEINE SAMMLUNG ---
 st.header("📚 Meine Sammlung")
 
 try:
-    # Daten live aus dem Google Sheet laden (Tabellenblatt "spiele")
-    data = conn.read(spreadsheet=GOOGLE_SHEET_URL, worksheet="spiele")
-
-    # Falls Daten da sind und die Tabelle nicht leer ist
-    if data is None or data.empty or "titel" not in data.columns:
-        st.info(
-            "Noch keine Spiele eingetragen oder Spaltenüberschriften fehlen."
+    # Daten live aus dem Google Sheet laden
+    daten = conn.read(worksheet="spiele")
+    
+    if daten is not None and not daten.empty:
+        # Komplett leere Zeilen für die Anzeige ignorieren
+        anzeige_daten = daten.dropna(how='all')
+        
+        # Die Tabelle hübsch in der App anzeigen
+        st.dataframe(
+            anzeige_daten, 
+            use_container_width=True,
+            hide_index=True
         )
+        
+        # Kleine Statistik am Rande
+        anzahl_spiele = len(anzeige_daten)
+        st.info(f"Insgesamt befinden sich aktuell **{anzahl_spiele} Spiele** in deiner Sammlung.")
     else:
-        # Filter-Eingabe in der linken Seitenleiste
-        filter_kat = st.sidebar.text_input("🔍 Nach Kategorie filtern")
+        st.warning("Deine Sammlung ist aktuell noch leer. Trage oben dein erstes Spiel ein!")
 
-        # Wir gehen Zeile für Zeile durch die Google-Tabelle
-        for index, row in data.iterrows():
-            s_titel = str(row["titel"])
-            s_spieler = str(row["spieler"])
-            s_dauer = str(row["dauer"])
-            s_kat = str(row["kategorien"]) if pd.notna(row["kategorien"]) else ""
-            s_notiz = str(row["notiz"]) if pd.notna(row["notiz"]) else ""
-
-            # Filter anwenden (Groß-/Kleinschreibung ignorieren)
-            if filter_kat.lower() in s_kat.lower():
-                with st.expander(
-                    f"🔴 {s_titel} ({s_spieler} Spieler | {s_dauer} Min)"
-                ):
-                    st.write(f"**Kategorien:** {s_kat}")
-                    st.write(f"**Meine Notiz:** {s_notiz}")
-except Exception as e:
-    st.info(
-        "Füge dein erstes Spiel hinzu, um die Tabelle zu aktivieren! (Oder überprüfe deine URL)"
-    )
+except Exception:
+    st.warning("Deine Sammlung ist aktuell noch leer. Trage oben dein erstes Spiel ein!")
