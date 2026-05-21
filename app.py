@@ -25,7 +25,7 @@ with st.form("spiel_form", clear_on_submit=True):
 
     submit = st.form_submit_button("In Google Sheets speichern")
 
-   if submit and titel:
+    if submit and titel:
         try:
             # 1. Wir versuchen, die bestehenden Daten zu laden
             try:
