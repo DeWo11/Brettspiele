@@ -28,9 +28,13 @@ with st.form("spiel_form", clear_on_submit=True):
 
     if submit and titel:
         try:
-            # Verbindung für das SCHREIBEN der Daten via gspread (sucht die Tabelle öffentlich via URL)
-            gc = gspread.public_open(GOOGLE_SHEET_URL)
-            worksheet = gc.worksheet("spiele")
+            # KORREKTUR: Wir nutzen .oauth() oder die direkte Client-Steuerung für öffentliche Sheets
+            # Da das Sheet öffentlich im Web ist, nutzen wir gspread über den direkten Schlüssel
+            gc = gspread.api_client_v4() if hasattr(gspread, "api_client_v4") else gspread.Client(auth=None)
+            
+            # Wir öffnen die Tabelle ganz normal über ihre URL
+            spreadsheet = gc.open_by_url(GOOGLE_SHEET_URL)
+            worksheet = spreadsheet.worksheet("spiele")
 
             # Neue Zeile als Liste vorbereiten und ans Ende der Tabelle anhängen
             neue_zeile = [titel, spieler, int(dauer), kategorien, notiz]
@@ -40,9 +44,7 @@ with st.form("spiel_form", clear_on_submit=True):
             # Cache leeren, damit die Anzeige unten sofort aktualisiert wird
             st.cache_data.clear()
         except Exception as e:
-            st.error(
-                f"Fehler beim Speichern. Hast du die Tabelle auf 'Mitwirkender/Editor' gestellt? Details: {e}"
-            )
+            st.error(f"Fehler beim Speichern. Details: {e}")
 
 # --- ANZEIGE & FILTER ---
 st.header("📚 Meine Sammlung")
