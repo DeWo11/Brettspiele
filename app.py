@@ -1,8 +1,8 @@
 import streamlit as st
 import pandas as pd
-from streamlit_gsheets import GSheetsConnection
+import gspread
 
-# --- SEITEN-EINSTESTELLUNGEN ---
+# --- SEITEN-EINSTELLUNGEN ---
 st.set_page_config(
     page_title="Meine Brettspiel-Datenbank",
     page_icon="🎲",
@@ -10,13 +10,39 @@ st.set_page_config(
 )
 
 st.title("🎲 Meine Brettspiel-Datenbank")
-st.write("Verwalte deine Brettspiel-Sammlung ganz einfach über diese Web-Oberfläche. Alle Daten werden live in Google Sheets gespeichert.")
+st.write("Verwalte deine Brettspiel-Sammlung ganz einfach über diese Web-Oberfläche. Direkt und stabil über gspread.")
 
-# Die exakte URL deiner Tabelle, fest im Code verankert
 DOKUMENT_URL = "https://docs.google.com/spreadsheets/d/1_T4tN3BLPD4rt6F5ccjS0IlbcDkZ19lmobDdajIIn-U/edit?gid=0#gid=0"
 
-# --- GOOGLE SHEETS VERBINDUNG INITIALISIEREN ---
-conn = st.connection("gsheets", type=GSheetsConnection)
+# --- MANUELLE GOOGLE VERBINDUNG (GSPREAD) ---
+@st.cache_resource
+def get_google_client():
+    # Wir bauen das originale Google-JSON aus deinen Streamlit-Secrets nach
+    credentials = {
+        "type": st.secrets["connections"]["gsheets"]["type"],
+        "project_id": st.secrets["connections"]["gsheets"]["project_id"],
+        "private_key_id": st.secrets["connections"]["gsheets"]["private_key_id"],
+        "private_key": st.secrets["connections"]["gsheets"]["private_key"],
+        "client_email": st.secrets["connections"]["gsheets"]["client_email"],
+        "client_id": st.secrets["connections"]["gsheets"]["client_id"],
+        "auth_uri": st.secrets["connections"]["gsheets"]["auth_uri"],
+        "token_uri": st.secrets["connections"]["gsheets"]["token_uri"],
+        "auth_provider_x509_cert_url": st.secrets["connections"]["gsheets"]["auth_provider_x509_cert_url"],
+        "client_x509_cert_url": st.secrets["connections"]["gsheets"]["client_x509_cert_url"],
+        "universe_domain": st.secrets["connections"]["gsheets"]["universe_domain"]
+    }
+    # Direktes Einloggen bei Google ohne Streamlit-Zwischenschicht
+    return gspread.service_account_from_dict(credentials)
+
+try:
+    gc = get_google_client()
+    # Öffne die Tabelle und das Tabellenblatt direkt
+    sh = gc.open_by_url(DOKUMENT_URL)
+    worksheet = sh.worksheet("spiele")
+    verbindung_erfolgreich = True
+except Exception as init_err:
+    st.error(f"⚠️ Verbindungsfehler zu Google: {init_err}")
+    verbindung_erfolgreich = False
 
 
 # --- FORMULAR: NEUES SPIEL HINZUFÜGEN ---
@@ -29,61 +55,40 @@ with st.form("spiel_form", clear_on_submit=True):
     kategorien = st.text_input("Kategorien (mit Komma trennen)")
     notiz = st.text_area("Meine Bemerkungen")
 
-    submit = st.form_submit_button("In Google Sheets保存")
+    submit = st.form_submit_button("In Google Sheets speichern")
 
-    if submit and titel:
-        # 1. Bestehende Daten laden
+    if submit and titel and verbindung_erfolgreich:
         try:
-            aktuelle_daten = conn.read(spreadsheet=DOKUMENT_URL, worksheet="spiele")
-            if aktuelle_daten is None:
-                aktuelle_daten = pd.DataFrame(columns=["titel", "spieler", "dauer", "kategorien", "notiz"])
-        except Exception:
-            aktuelle_daten = pd.DataFrame(columns=["titel", "spieler", "dauer", "kategorien", "notiz"])
-
-        # 2. Das neue Spiel anlegen
-        neues_spiel = pd.DataFrame([{
-            "titel": titel,
-            "spieler": spieler,
-            "dauer": int(dauer),
-            "kategorien": kategorien,
-            "notiz": notiz
-        }])
-        neues_spiel = neues_spiel.reindex(columns=["titel", "spieler", "dauer", "kategorien", "notiz"])
-
-        # 3. Daten zusammenführen
-        if aktuelle_daten.empty:
-            aktualisierte_daten = neues_spiel
-        else:
-            aktuelle_daten = aktuelle_daten.dropna(how='all')
-            aktualisierte_daten = pd.concat([aktuelle_daten, neues_spiel], ignore_index=True)
-
-        # 4. Daten mit der festen URL hochladen
-        conn.update(
-            spreadsheet=DOKUMENT_URL,
-            worksheet="spiele",
-            data=aktualisierte_daten
-        )
-        
-        st.success(f"🎲 '{titel}' wurde erfolgreich gespeichert!")
-        st.cache_data.clear()
+            # Zeile direkt ans Ende der Google-Tabelle anhängen
+            neue_zeile = [titel, spieler, int(dauer), kategorien, notiz]
+            worksheet.append_row(neue_zeile)
+            
+            st.success(f"🎲 '{titel}' wurde erfolgreich gespeichert!")
+            st.cache_data.clear() # Cache leeren, damit die Anzeige neu lädt
+        except Exception as e:
+            st.error(f"Fehler beim Speichern: {e}")
 
 
 # --- ANZEIGE: MEINE SAMMLUNG ---
 st.header("📚 Meine Sammlung")
 
-try:
-    daten = conn.read(spreadsheet=DOKUMENT_URL, worksheet="spiele")
-    
-    if daten is not None and not daten.empty:
-        anzeige_daten = daten.dropna(how='all')
-        st.dataframe(
-            anzeige_daten, 
-            use_container_width=True,
-            hide_index=True
-        )
-        st.info(f"Insgesamt befinden sich aktuell **{len(anzeige_daten)} Spiele** in deiner Sammlung.")
-    else:
-        st.warning("Deine Sammlung ist aktuell noch leer. Trage oben dein erstes Spiel ein!")
-
-except Exception:
-    st.warning("Deine Sammlung ist aktuell noch leer. Trage oben dein erstes Spiel ein!")
+if verbindung_erfolgreich:
+    try:
+        # Alle Daten aus dem Sheet holen
+        all_records = worksheet.get_all_records()
+        
+        if all_records:
+            daten = pd.DataFrame(all_records)
+            st.dataframe(
+                daten, 
+                use_container_width=True,
+                hide_index=True
+            )
+            st.info(f"Insgesamt befinden sich aktuell **{len(daten)} Spiele** in deiner Sammlung.")
+        else:
+            st.warning("Deine Sammlung ist aktuell noch leer. Trage oben dein erstes Spiel ein!")
+            
+    except Exception as read_err:
+        st.warning(f"Konnte Daten nicht anzeigen: {read_err}")
+else:
+    st.warning("Keine Verbindung zur Datenbank möglich.")
