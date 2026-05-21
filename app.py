@@ -32,14 +32,14 @@ with st.form("spiel_form", clear_on_submit=True):
     if submit and titel:
         # 1. Bestehende Daten laden
         try:
-            aktuelle_daten = conn.read(worksheet="spiele")
+            # Wir geben die URL hier wieder explizit an, damit er die Tabelle findet
+            aktuelle_daten = conn.read(spreadsheet="https://docs.google.com/spreadsheets/d/1_T4tN3BLPD4rt6F5ccjS0IlbcDkZ19lmobDdajIIn-U/edit?gid=0#gid=0", worksheet="spiele")
             if aktuelle_daten is None:
                 aktuelle_daten = pd.DataFrame(columns=["titel", "spieler", "dauer", "kategorien", "notiz"])
         except Exception:
-            # Falls das Sheet komplett leer ist, starten wir mit leeren Spalten
             aktuelle_daten = pd.DataFrame(columns=["titel", "spieler", "dauer", "kategorien", "notiz"])
 
-        # 2. Das neue Spiel als sauberes Datenblatt (DataFrame) anlegen
+        # 2. Das neue Spiel anlegen
         neues_spiel = pd.DataFrame([{
             "titel": titel,
             "spieler": spieler,
@@ -47,22 +47,23 @@ with st.form("spiel_form", clear_on_submit=True):
             "kategorien": kategorien,
             "notiz": notiz
         }])
-        
-        # Sicherstellen, dass die Reihenfolge der Spalten exakt übereinstimmt
         neues_spiel = neues_spiel.reindex(columns=["titel", "spieler", "dauer", "kategorien", "notiz"])
 
         # 3. Daten zusammenführen
         if aktuelle_daten.empty:
             aktualisierte_daten = neues_spiel
         else:
-            # Eventuelle komplett leere Zeilen aus der Google-Tabelle herausfiltern
             aktuelle_daten = aktuelle_daten.dropna(how='all')
             aktualisierte_daten = pd.concat([aktuelle_daten, neues_spiel], ignore_index=True)
 
-        # 4. Daten direkt zu Google Sheets hochladen
-        conn.update(worksheet="spiele", data=aktualisierte_daten)
+        # 4. Daten mit expliziter URL-Angabe hochladen
+        conn.update(
+            spreadsheet="https://docs.google.com/spreadsheets/d/1_T4tN3BLPD4rt6F5ccjS0IlbcDkZ19lmobDdajIIn-U/edit?gid=0#gid=0", 
+            worksheet="spiele", 
+            data=aktualisierte_daten
+        )
         
-        # 5. Grüne Erfolgsmeldung anzeigen und den App-Speicher (Cache) aktualisieren
+        # 5. Erfolg anzeigen und Cache leeren
         st.success(f"🎲 '{titel}' wurde erfolgreich in deiner Google-Tabelle gespeichert!")
         st.cache_data.clear()
 
