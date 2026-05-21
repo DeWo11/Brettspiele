@@ -25,40 +25,53 @@ with st.form("spiel_form", clear_on_submit=True):
 
     submit = st.form_submit_button("In Google Sheets speichern")
 
-    if submit and titel:
+   if submit and titel:
         try:
-            # 1. Wir bereiten die neuen Daten als einfache Liste vor
-            # (Reihenfolge: titel, spieler, dauer, kategorien, notiz)
-            neue_zeile = [[titel, spieler, int(dauer), kategorien, notiz]]
-            
-            # 2. Wir erstellen ein winziges Datenblatt nur für diese eine Zeile
-            neues_spiel_df = pd.DataFrame(
-                neue_zeile, 
-                columns=["titel", "spieler", "dauer", "kategorien", "notiz"]
-            )
-
-            # 3. Wir lesen die Tabelle einmal kurz aus, um zu sehen, ob schon was drin steht
+            # 1. Wir versuchen, die bestehenden Daten zu laden
             try:
                 aktuelle_daten = conn.read(spreadsheet=GOOGLE_SHEET_URL, worksheet="spiele")
-                start_zeile = len(aktuelle_daten) + 2 if aktuelle_daten is not None else 2
+                
+                # Falls die Tabelle existiert, aber Pandas sie falsch eingelesen hat (z.B. als None)
+                if aktuelle_daten is None:
+                    aktuelle_daten = pd.DataFrame(columns=["titel", "spieler", "dauer", "kategorien", "notiz"])
             except Exception:
-                start_zeile = 2
+                # Falls das Laden fehlschlägt (z.B. weil das Sheet komplett leer ist)
+                aktuelle_daten = pd.DataFrame(columns=["titel", "spieler", "dauer", "kategorien", "notiz"])
 
-            # 4. Wir hängen die Zeile gezielt unten an, statt alles zu überschreiben
+            # 2. Das neue Spiel als sauberes Datenblatt (DataFrame) anlegen
+            neues_spiel = pd.DataFrame([{
+                "titel": titel,
+                "spieler": spieler,
+                "dauer": int(dauer),
+                "kategorien": kategorien,
+                "notiz": notiz
+            }])
+
+            # 3. Sicherstellen, dass die Spaltennamen exakt übereinstimmen
+            neues_spiel = neues_spiel.reindex(columns=["titel", "spieler", "dauer", "kategorien", "notiz"])
+
+            # 4. Das neue Spiel unten an die alten Daten anheften
+            if aktuelle_daten.empty:
+                aktualisierte_daten = neues_spiel
+            else:
+                # Wir bereinigen eventuelle leere Zeilen/Spalten aus dem Google-Sheet-Import
+                aktuelle_daten = aktuelle_daten.dropna(how='all')
+                aktualisierte_daten = pd.concat([aktuelle_daten, neues_spiel], ignore_index=True)
+
+            # 5. Das gesamte Paket komplett zu Google hochladen
             conn.update(
                 spreadsheet=GOOGLE_SHEET_URL,
                 worksheet="spiele",
-                data=neues_spiel_df,
-                range=f"A{start_zeile}" # Setzt es genau in die nächste freie Zeile
+                data=aktualisierte_daten
             )
 
-            st.success(f"🎲 '{titel}' wurde erfolgreich in deiner Google-Tabelle gespeichert!")
+            st.success(f"🎲 '{titel}' wurde erfolgreich gespeichert!")
             st.cache_data.clear()
 
         except Exception as e:
-            # Sicherheitsnetz für die hartnäckige Response-200-Meldung
+            # Der bewährte Filter für die harmlose Response-200-Erfolgsmeldung
             if "200" in str(e):
-                st.success(f"🎲 '{titel}' wurde erfolgreich in deiner Google-Tabelle gespeichert!")
+                st.success(f"🎲 '{titel}' wurde erfolgreich gespeichert!")
                 st.cache_data.clear()
             else:
                 st.error(f"Fehler beim Speichern: {e}")
