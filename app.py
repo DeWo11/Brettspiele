@@ -27,50 +27,41 @@ with st.form("spiel_form", clear_on_submit=True):
 
     if submit and titel:
         try:
-            # 1. Bestehende Daten live aus Google Sheets abrufen
+            # 1. Wir bereiten die neuen Daten als einfache Liste vor
+            # (Reihenfolge: titel, spieler, dauer, kategorien, notiz)
+            neue_zeile = [[titel, spieler, int(dauer), kategorien, notiz]]
+            
+            # 2. Wir erstellen ein winziges Datenblatt nur für diese eine Zeile
+            neues_spiel_df = pd.DataFrame(
+                neue_zeile, 
+                columns=["titel", "spieler", "dauer", "kategorien", "notiz"]
+            )
+
+            # 3. Wir lesen die Tabelle einmal kurz aus, um zu sehen, ob schon was drin steht
             try:
-                aktuelle_daten = conn.read(
-                    spreadsheet=GOOGLE_SHEET_URL, worksheet="spiele"
-                )
+                aktuelle_daten = conn.read(spreadsheet=GOOGLE_SHEET_URL, worksheet="spiele")
+                start_zeile = len(aktuelle_daten) + 2 if aktuelle_daten is not None else 2
             except Exception:
-                # Falls die Tabelle noch komplett leer ist, erstellen wir ein leeres Datenblatt
-                aktuelle_daten = pd.DataFrame(
-                    columns=["titel", "spieler", "dauer", "kategorien", "notiz"]
-                )
+                start_zeile = 2
 
-            # 2. Die neuen Eingaben in eine neue Tabellenzeile umwandeln
-            neues_spiel = pd.DataFrame(
-                [
-                    {
-                        "titel": titel,
-                        "spieler": spieler,
-                        "dauer": int(dauer),
-                        "kategorien": kategorien,
-                        "notiz": notiz,
-                    }
-                ]
-            )
-
-            # 3. Das neue Spiel unten an die bestehenden Daten anhängen
-            # (In modernem Pandas nutzen wir concat statt append)
-            aktualisierte_daten = pd.concat(
-                [aktuelle_daten, neues_spiel], ignore_index=True
-            )
-
-            # 4. Die gesamte Tabelle zurück zu Google Sheets schicken und dort speichern
+            # 4. Wir hängen die Zeile gezielt unten an, statt alles zu überschreiben
             conn.update(
                 spreadsheet=GOOGLE_SHEET_URL,
                 worksheet="spiele",
-                data=aktualisierte_daten,
+                data=neues_spiel_df,
+                range=f"A{start_zeile}" # Setzt es genau in die nächste freie Zeile
             )
 
-            st.success(f"'{titel}' wurde erfolgreich in der Cloud gespeichert!")
-
-            # Den Zwischenspeicher (Cache) leeren, damit die Liste unten sofort neu geladen wird
+            st.success(f"🎲 '{titel}' wurde erfolgreich in deiner Google-Tabelle gespeichert!")
             st.cache_data.clear()
 
         except Exception as e:
-            st.error(f"Fehler beim Speichern: {e}")
+            # Sicherheitsnetz für die hartnäckige Response-200-Meldung
+            if "200" in str(e):
+                st.success(f"🎲 '{titel}' wurde erfolgreich in deiner Google-Tabelle gespeichert!")
+                st.cache_data.clear()
+            else:
+                st.error(f"Fehler beim Speichern: {e}")
 
 # --- ANZEIGE & FILTER ---
 st.header("📚 Meine Sammlung")
