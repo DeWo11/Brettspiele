@@ -5,7 +5,7 @@ from streamlit_gsheets import GSheetsConnection
 
 # --- GOOGLE SHEETS VERBINDUNG ---
 # Trage HIER die kopierte URL deiner Google-Tabelle ein
-GOOGLE_SHEET_URL = https://docs.google.com/spreadsheets/d/1_T4tN3BLPD4rt6F5ccjS0IlbcDkZ19lmobDdajIIn-U/edit?gid=0#gid=0
+GOOGLE_SHEET_URL = "https://docs.google.com/spreadsheets/d/1_T4tN3BLPD4rt6F5ccjS0IlbcDkZ19lmobDdajIIn-U/edit?gid=0#gid=0"
 
 # Verbindung für das Lesen der Daten (Streamlit Built-in)
 conn = st.connection("gsheets", type=GSheetsConnection)
